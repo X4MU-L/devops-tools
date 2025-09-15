@@ -18,48 +18,53 @@ jobs:
 ## 📦 Available Images
 
 ### Ubuntu-based (Recommended)
+
 ```bash
 docker pull ghcr.io/your-org/devops-tools:latest-ubuntu
 ```
+
 - **Size**: ~200MB
 - **Base**: Ubuntu 22.04 LTS
 - **Use case**: Production workloads, full compatibility
 
 ### Alpine-based (Lightweight)
+
 ```bash
 docker pull ghcr.io/your-org/devops-tools:latest-alpine
 ```
-- **Size**: ~150MB  
+
+- **Size**: ~150MB
 - **Base**: Alpine 3.18
 - **Use case**: Speed-critical scenarios, smaller footprint
 
 ## 🛠️ Included Tools
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| **Terraform** | 1.5.0 | Infrastructure as Code |
-| **kubectl** | 1.28.0 | Kubernetes CLI |
-| **Helm** | 3.12.0 | Kubernetes package manager |
-| **AWS CLI** | v2 | AWS operations |
-| **Docker CLI** | 24.0.6 | Container operations |
-| **yq** | 4.35.2 | YAML processor |
-| **Git** | Latest | Version control |
-| **curl/wget** | Latest | HTTP clients |
-| **jq** | Latest | JSON processor |
+| Tool           | Version | Purpose                    |
+| -------------- | ------- | -------------------------- |
+| **Terraform**  | 1.5.0   | Infrastructure as Code     |
+| **kubectl**    | 1.28.0  | Kubernetes CLI             |
+| **Helm**       | 3.12.0  | Kubernetes package manager |
+| **AWS CLI**    | v2      | AWS operations             |
+| **Docker CLI** | 24.0.6  | Container operations       |
+| **yq**         | 4.35.2  | YAML processor             |
+| **Git**        | Latest  | Version control            |
+| **curl/wget**  | Latest  | HTTP clients               |
+| **jq**         | Latest  | JSON processor             |
 
 ## 🏷️ Tagging Strategy
 
-| Tag Pattern | Description | Example |
-|-------------|-------------|---------|
-| `latest-ubuntu` | Latest Ubuntu build | `ghcr.io/your-org/devops-tools:latest-ubuntu` |
-| `latest-alpine` | Latest Alpine build | `ghcr.io/your-org/devops-tools:latest-alpine` |
-| `v1.2.3-ubuntu` | Semantic version Ubuntu | `ghcr.io/your-org/devops-tools:v1.2.3-ubuntu` |
-| `v1.2.3-alpine` | Semantic version Alpine | `ghcr.io/your-org/devops-tools:v1.2.3-alpine` |
-| `main-abc123-ubuntu` | Branch + commit SHA | `ghcr.io/your-org/devops-tools:main-abc123-ubuntu` |
+| Tag Pattern          | Description             | Example                                            |
+| -------------------- | ----------------------- | -------------------------------------------------- |
+| `latest-ubuntu`      | Latest Ubuntu build     | `ghcr.io/your-org/devops-tools:latest-ubuntu`      |
+| `latest-alpine`      | Latest Alpine build     | `ghcr.io/your-org/devops-tools:latest-alpine`      |
+| `v1.2.3-ubuntu`      | Semantic version Ubuntu | `ghcr.io/your-org/devops-tools:v1.2.3-ubuntu`      |
+| `v1.2.3-alpine`      | Semantic version Alpine | `ghcr.io/your-org/devops-tools:v1.2.3-alpine`      |
+| `main-abc123-ubuntu` | Branch + commit SHA     | `ghcr.io/your-org/devops-tools:main-abc123-ubuntu` |
 
 ## 🔧 Usage Examples
 
 ### Local Development
+
 ```bash
 # Run interactive shell
 docker run -it --rm ghcr.io/your-org/devops-tools:latest-ubuntu
@@ -72,6 +77,7 @@ docker run --rm ghcr.io/your-org/devops-tools:latest-ubuntu terraform version
 ```
 
 ### GitHub Actions
+
 ```yaml
 name: Deploy Infrastructure
 
@@ -84,31 +90,32 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/your-org/devops-tools:v1.0.0-ubuntu
-      options: --user root  # If needed for GitHub Actions
-    
+      options: --user root # If needed for GitHub Actions
+
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region: us-east-1
-    
-    - name: Deploy with Terraform
-      run: |
-        cd terraform
-        terraform init
-        terraform plan
-        terraform apply -auto-approve
-    
-    - name: Deploy with Helm
-      run: |
-        aws eks update-kubeconfig --name my-cluster
-        helm upgrade --install myapp ./helm/myapp
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Deploy with Terraform
+        run: |
+          cd terraform
+          terraform init
+          terraform plan
+          terraform apply -auto-approve
+
+      - name: Deploy with Helm
+        run: |
+          aws eks update-kubeconfig --name my-cluster
+          helm upgrade --install myapp ./helm/myapp
 ```
 
 ### GitLab CI
+
 ```yaml
 image: ghcr.io/your-org/devops-tools:latest-ubuntu
 
@@ -124,10 +131,11 @@ deploy:
 ```
 
 ### Jenkins Pipeline
+
 ```groovy
 pipeline {
     agent {
-        docker { 
+        docker {
             image 'ghcr.io/your-org/devops-tools:latest-ubuntu'
             args '-u root:root'
         }
@@ -163,6 +171,7 @@ pipeline {
 ## 🔄 Automated Updates
 
 The container is automatically rebuilt:
+
 - **Weekly** - Every Monday at 2 AM UTC for security updates
 - **On push** - When code changes are pushed
 - **On tags** - When new versions are tagged
@@ -171,14 +180,17 @@ The container is automatically rebuilt:
 ## 📋 Environment Setup Requirements
 
 ### GitHub Repository Secrets
+
 No additional secrets required! Uses `GITHUB_TOKEN` for GitHub Container Registry.
 
 ### Repository Settings
+
 1. **Packages**: Enable GitHub Container Registry
 2. **Actions**: Enable GitHub Actions
 3. **Security**: Enable Dependabot alerts
 
 ### Optional Secrets (for enhanced features)
+
 ```bash
 # For Slack notifications (optional)
 SLACK_WEBHOOK_URL=https://hooks.slack.com/...
@@ -198,7 +210,7 @@ cd devops-tools
 # Build Ubuntu variant
 docker build -t devops-tools:ubuntu .
 
-# Build Alpine variant  
+# Build Alpine variant
 docker build -t devops-tools:alpine -f Dockerfile.alpine .
 
 # Test functionality
@@ -207,14 +219,14 @@ docker run --rm devops-tools:ubuntu terraform version
 
 ## 📊 Image Comparison
 
-| Metric | Ubuntu | Alpine |
-|--------|--------|---------|
-| **Base Image** | Ubuntu 22.04 | Alpine 3.18 |
-| **Size** | ~200MB | ~150MB |
-| **Security Updates** | More frequent | Less frequent |
-| **Compatibility** | Higher | Good |
-| **Performance** | Standard | Faster startup |
-| **Use Case** | Production | Speed-critical |
+| Metric               | Ubuntu        | Alpine         |
+| -------------------- | ------------- | -------------- |
+| **Base Image**       | Ubuntu 22.04  | Alpine 3.18    |
+| **Size**             | ~200MB        | ~150MB         |
+| **Security Updates** | More frequent | Less frequent  |
+| **Compatibility**    | Higher        | Good           |
+| **Performance**      | Standard      | Faster startup |
+| **Use Case**         | Production    | Speed-critical |
 
 ## 🤝 Contributing
 
@@ -227,6 +239,7 @@ docker run --rm devops-tools:ubuntu terraform version
 ## 📝 Version History
 
 ### v1.0.0
+
 - Initial release
 - Terraform 1.5.0
 - kubectl 1.28.0
