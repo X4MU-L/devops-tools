@@ -1,7 +1,6 @@
 # 🏗️ Multi-stage DevOps Tools Container
 # Optimized for size and security
 
-# ========================================
 # Stage 1: Builder - Download and prepare tools
 # ========================================
 FROM ubuntu:22.04 AS builder
@@ -74,7 +73,7 @@ RUN ARCH=$(cat /tmp/arch) \
     && curl -L "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_${ARCH}" -o /tools/bin/yq \
     && chmod +x /tools/bin/yq
 
-# Download Docker CLI (without daemon)
+# Download Docker CLI
 RUN ARCH=$(cat /tmp/arch) \
     && case "${ARCH}" in \
          "amd64") DOCKER_ARCH="x86_64" ;; \
@@ -85,17 +84,20 @@ RUN ARCH=$(cat /tmp/arch) \
     && mv docker/docker /tools/bin/ \
     && rm -rf docker.tgz docker
 
-# ========================================
-# Stage 2: Runtime - Minimal final image
+# Stage 2: Runtime - Create minimal production image
 # ========================================
 FROM ubuntu:22.04 AS runtime
 
 # Metadata
 LABEL maintainer="DevOps Team"
-LABEL description="Optimized DevOps tools container"
+LABEL description="Production-ready DevOps tools container"
 LABEL version="1.0.0"
 
-# Avoid interactive prompts
+# Build arguments for multi-platform support
+ARG TARGETPLATFORM
+ARG BUILDPLATFORM
+
+# Avoid interactive prompts during build
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install only runtime dependencies
@@ -111,10 +113,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /tools/bin/* /usr/local/bin/
 COPY --from=builder /tools/aws-cli /usr/local/aws-cli
 
-# Create symlink for AWS CLI
-RUN ln -sf /usr/local/aws-cli/v2/current/bin/aws /usr/local/bin/aws
-
-# Create non-root user for security
+# Create non-root user
 RUN groupadd -r devops && useradd -r -g devops -s /bin/bash devops \
     && mkdir -p /home/devops \
     && chown devops:devops /home/devops
@@ -122,8 +121,8 @@ RUN groupadd -r devops && useradd -r -g devops -s /bin/bash devops \
 # Set working directory
 WORKDIR /workspace
 
-# Make all tools executable
-RUN chmod +x /usr/local/bin/*
+# Make all tools executable (exclude broken symlinks)
+RUN find /usr/local/bin -type f -exec chmod +x {} \;
 
 # Verify tools are working (as root for build) - resilient checks
 RUN terraform version || echo "Terraform check failed" && \
@@ -133,15 +132,14 @@ RUN terraform version || echo "Terraform check failed" && \
     docker --version || echo "Docker check failed" && \
     yq --version || echo "yq check failed"
 
+# Change ownership of workspace
+RUN chown devops:devops /workspace
+
 # Switch to non-root user
 USER devops
 
-# Set environment variables
-ENV PATH="/usr/local/bin:${PATH}"
-ENV WORKSPACE="/workspace"
-
-# Health check (simplified)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD terraform version > /dev/null 2>&1
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD terraform version || exit 1
 
 CMD ["/bin/bash"]
