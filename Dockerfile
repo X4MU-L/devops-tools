@@ -106,12 +106,25 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     jq \
+    python3 \
+    python3-pip \
+    unzip \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 # Copy tools from builder stage
 COPY --from=builder /tools/bin/* /usr/local/bin/
 COPY --from=builder /tools/aws-cli /usr/local/aws-cli
+
+# Create symlink for AWS CLI (ensuring it points to the correct location)
+RUN if [ -f /usr/local/aws-cli/v2/current/bin/aws ]; then \
+        ln -sf /usr/local/aws-cli/v2/current/bin/aws /usr/local/bin/aws; \
+    elif [ -f /usr/local/aws-cli/v2/bin/aws ]; then \
+        ln -sf /usr/local/aws-cli/v2/bin/aws /usr/local/bin/aws; \
+    else \
+        echo "AWS CLI binary not found, installing via pip"; \
+        pip3 install awscli; \
+    fi
 
 # Create non-root user
 RUN groupadd -r devops && useradd -r -g devops -s /bin/bash devops \
