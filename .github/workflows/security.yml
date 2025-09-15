@@ -1,0 +1,170 @@
+name: 🔍 Security Scan
+
+on:
+  schedule:
+    # Scan every day at 3 AM UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: "Type of security scan"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - images
+          - filesystem
+          - dependencies
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # Scan existing published images
+  image-security-scan:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'images' || github.event_name == 'schedule' }}
+    permissions:
+      contents: read
+      packages: read
+      security-events: write
+
+    strategy:
+      matrix:
+        variant: [ubuntu, alpine]
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔐 Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔍 Comprehensive Trivy image scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository }}:latest-${{ matrix.variant }}
+          format: "sarif"
+          output: "trivy-image-${{ matrix.variant }}.sarif"
+          vuln-type: "os,library"
+          severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
+          ignore-unfixed: false
+
+      - name: 📊 Upload image scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-image-${{ matrix.variant }}.sarif"
+          category: "trivy-image-${{ matrix.variant }}"
+
+      - name: 🔍 Generate SBOM (Software Bill of Materials)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository }}:latest-${{ matrix.variant }}
+          format: "spdx-json"
+          output: "sbom-${{ matrix.variant }}.spdx.json"
+
+      - name: 📋 Upload SBOM as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.variant }}
+          path: "sbom-${{ matrix.variant }}.spdx.json"
+          retention-days: 30
+
+  # Scan repository filesystem
+  filesystem-security-scan:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'filesystem' || github.event_name == 'schedule' }}
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔍 Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-fs-results.sarif"
+          severity: "MEDIUM,HIGH,CRITICAL"
+          scanners: "vuln,secret,misconfig"
+
+      - name: 📊 Upload filesystem scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-fs-results.sarif"
+          category: "trivy-filesystem"
+
+      - name: 🔍 Secret scanning with GitLeaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Dependency scanning
+  dependency-security-scan:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == 'dependencies' || github.event_name == 'schedule' }}
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🔍 Dependency Review
+        uses: actions/dependency-review-action@v4
+        if: github.event_name == 'pull_request'
+
+      - name: 🔍 Snyk security scan
+        uses: snyk/actions/docker@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: "ubuntu:22.04"
+          args: --severity-threshold=medium --file=Dockerfile
+
+      - name: 📊 Upload Snyk results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && env.SNYK_TOKEN
+        with:
+          sarif_file: snyk.sarif
+          category: "snyk-dependencies"
+
+  # Security summary and notification
+  security-summary:
+    runs-on: ubuntu-latest
+    needs:
+      [image-security-scan, filesystem-security-scan, dependency-security-scan]
+    if: always()
+
+    steps:
+      - name: � Security scan summary
+        run: |
+          echo "## � Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Scan Type | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Security | ${{ needs.image-security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Filesystem Security | ${{ needs.filesystem-security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency Security | ${{ needs.dependency-security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+
+          # Check for any failures
+          if [ "${{ needs.image-security-scan.result }}" == "failure" ] || 
+             [ "${{ needs.filesystem-security-scan.result }}" == "failure" ] || 
+             [ "${{ needs.dependency-security-scan.result }}" == "failure" ]; then
+            echo "🚨 **Security issues detected!** Please review the Security tab." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          else
+            echo "✅ **All security scans passed successfully!**" >> $GITHUB_STEP_SUMMARY
+          fi

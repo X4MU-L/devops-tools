@@ -1,0 +1,126 @@
+name: 🏗️ Build and Push DevOps Tools Container
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  schedule:
+    # Rebuild weekly to get security updates
+    - cron: '0 2 * * 1'
+
+jobs:
+  # Main build and test workflow
+  build-and-test:
+    uses: ./.github/workflows/_reusable-build.yml
+    with:
+      push_images: ${{ github.event_name != 'pull_request' }}
+      run_security_scan: true
+      platforms: 'linux/amd64,linux/arm64'
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+  # Create release for tags
+  create-release:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 📋 Generate changelog
+      id: changelog
+      run: |
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+        if [ -n "$PREVIOUS_TAG" ]; then
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD)
+        else
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" HEAD)
+        fi
+        echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: 🏷️ Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: DevOps Tools ${{ github.ref_name }}
+        body: |
+          ## 🏗️ DevOps Tools Container ${{ github.ref_name }}
+          
+          ### 📦 Available Images
+          ```bash
+          # Ubuntu (Recommended)
+          docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}-ubuntu
+          
+          # Alpine (Lightweight)
+          docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}-alpine
+          ```
+          
+          ### 🛠️ Included Tools
+          - **Terraform** v1.5.0 - Infrastructure as Code
+          - **kubectl** v1.28.0 - Kubernetes CLI  
+          - **Helm** v3.12.0 - Kubernetes package manager
+          - **AWS CLI** v2 - AWS operations
+          - **Docker CLI** v24.0.6 - Container operations
+          - **yq** v4.35.2 - YAML processor
+          - **Git, curl, jq** - Essential utilities
+          
+          ### 🚀 Quick Start
+          ```yaml
+          jobs:
+            deploy:
+              runs-on: ubuntu-latest
+              container: ghcr.io/${{ github.repository }}:${{ github.ref_name }}-ubuntu
+              steps:
+                - uses: actions/checkout@v4
+                - run: terraform version && kubectl version --client
+          ```
+          
+          ### 📊 Image Information
+          | Variant | Base | Size | Use Case |
+          |---------|------|------|----------|
+          | Ubuntu | Ubuntu 22.04 | ~200MB | Production workloads |
+          | Alpine | Alpine 3.18 | ~150MB | Speed-critical scenarios |
+          
+          ### 🔒 Security Features
+          - Multi-stage builds for minimal attack surface
+          - Non-root user (devops:1000) for runtime security
+          - Vulnerability scanning with Trivy
+          - Regular security updates via automated builds
+          
+          ### 📝 What's Changed
+          ${{ steps.changelog.outputs.CHANGELOG }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+
+  # Notification job
+  notify:
+    runs-on: ubuntu-latest
+    needs: [build-and-test]
+    if: always()
+    
+    steps:
+    - name: 📢 Notify build status
+      env:
+        BUILD_STATUS: ${{ needs.build-and-test.result }}
+      run: |
+        if [ "$BUILD_STATUS" == "success" ]; then
+          echo "✅ Build and tests successful!"
+          echo "Images available at: ghcr.io/${{ github.repository }}"
+        else
+          echo "❌ Build or tests failed!"
+          exit 1
+        fi

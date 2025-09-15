@@ -1,0 +1,85 @@
+name: 🏷️ Release Management
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  validate-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: � Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: ✅ Validate release images exist
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          REPO_NAME="${{ github.repository }}"
+
+          echo "🔍 Validating images for release: $TAG_NAME"
+
+          # Check Ubuntu image
+          if docker manifest inspect ghcr.io/${REPO_NAME}:${TAG_NAME}-ubuntu >/dev/null 2>&1; then
+            echo "✅ Ubuntu image exists: ghcr.io/${REPO_NAME}:${TAG_NAME}-ubuntu"
+          else
+            echo "❌ Ubuntu image missing: ghcr.io/${REPO_NAME}:${TAG_NAME}-ubuntu"
+            exit 1
+          fi
+
+          # Check Alpine image
+          if docker manifest inspect ghcr.io/${REPO_NAME}:${TAG_NAME}-alpine >/dev/null 2>&1; then
+            echo "✅ Alpine image exists: ghcr.io/${REPO_NAME}:${TAG_NAME}-alpine"
+          else
+            echo "❌ Alpine image missing: ghcr.io/${REPO_NAME}:${TAG_NAME}-alpine"
+            exit 1
+          fi
+
+          echo "🎉 All release images validated successfully!"
+
+      - name: 🧪 Quick functionality test
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          REPO_NAME="${{ github.repository }}"
+
+          # Test Ubuntu image
+          echo "🧪 Testing Ubuntu image..."
+          docker run --rm ghcr.io/${REPO_NAME}:${TAG_NAME}-ubuntu terraform version
+          docker run --rm ghcr.io/${REPO_NAME}:${TAG_NAME}-ubuntu kubectl version --client
+
+          # Test Alpine image
+          echo "🧪 Testing Alpine image..."
+          docker run --rm ghcr.io/${REPO_NAME}:${TAG_NAME}-alpine terraform version
+          docker run --rm ghcr.io/${REPO_NAME}:${TAG_NAME}-alpine kubectl version --client
+
+          echo "✅ Release images tested successfully!"
+
+  notify-release:
+    runs-on: ubuntu-latest
+    needs: validate-release
+    if: always()
+
+    steps:
+      - name: 📢 Release notification
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+
+          if [ "${{ needs.validate-release.result }}" == "success" ]; then
+            echo "✅ Release $TAG_NAME validated and ready!"
+            echo "📦 Images:"
+            echo "  - ghcr.io/${{ github.repository }}:${TAG_NAME}-ubuntu"
+            echo "  - ghcr.io/${{ github.repository }}:${TAG_NAME}-alpine"
+          else
+            echo "❌ Release $TAG_NAME validation failed!"
+            exit 1
+          fi
