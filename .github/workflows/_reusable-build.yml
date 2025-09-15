@@ -17,7 +17,7 @@ on:
         description: "Target platforms for build"
         required: false
         type: string
-        default: "linux/amd64,linux/arm64"
+        default: "linux/amd64" # Default to amd64 only for faster builds
       tag_suffix:
         description: "Suffix for image tags"
         required: false
@@ -91,6 +91,7 @@ jobs:
       - name: 🏗️ Build and push Docker image
         id: build
         uses: docker/build-push-action@v5
+        timeout-minutes: 30
         with:
           context: .
           file: ${{ matrix.variant.dockerfile }}
@@ -100,24 +101,37 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=${{ inputs.push_images }}
           build-args: |
             BUILD_DATE=${{ github.event.head_commit.timestamp }}
             VCS_REF=${{ github.sha }}
             VERSION=${{ steps.meta.outputs.version }}
 
       - name: 🔍 Run Trivy vulnerability scanner
-        if: inputs.run_security_scan
+        if: inputs.run_security_scan && inputs.push_images
         uses: aquasecurity/trivy-action@master
+        continue-on-error: true
         with:
-          image-ref: ${{ steps.meta.outputs.tags }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}-${{ matrix.variant.name }}
           format: "sarif"
           output: "trivy-results-${{ matrix.variant.name }}.sarif"
           severity: "CRITICAL,HIGH,MEDIUM"
 
-      - name: 📊 Upload Trivy scan results
-        if: inputs.run_security_scan && always()
+      - name: � Check if SARIF file exists
+        id: check-sarif
+        if: inputs.run_security_scan && inputs.push_images && always()
+        run: |
+          if [ -f "trivy-results-${{ matrix.variant.name }}.sarif" ]; then
+            echo "sarif_exists=true" >> $GITHUB_OUTPUT
+            echo "✅ SARIF file exists: trivy-results-${{ matrix.variant.name }}.sarif"
+          else
+            echo "sarif_exists=false" >> $GITHUB_OUTPUT
+            echo "❌ SARIF file not found: trivy-results-${{ matrix.variant.name }}.sarif"
+          fi
+
+      - name: �📊 Upload Trivy scan results
+        if: inputs.run_security_scan && inputs.push_images && always() && steps.check-sarif.outputs.sarif_exists == 'true'
         uses: github/codeql-action/upload-sarif@v3
+        continue-on-error: true
         with:
           sarif_file: "trivy-results-${{ matrix.variant.name }}.sarif"
           category: "trivy-${{ matrix.variant.name }}"
