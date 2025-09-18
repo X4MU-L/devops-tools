@@ -224,6 +224,14 @@ jobs:
       packages: read
       security-events: write
 
+    strategy:
+      matrix:
+        variant:
+          - name: ubuntu
+            dockerfile: Dockerfile
+          - name: alpine
+            dockerfile: Dockerfile.alpine
+
     steps:
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
@@ -235,36 +243,45 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🔍 Advanced Trivy scan - Ubuntu
+      - name: � Extract metadata for scanning
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=auto
+            suffix=-${{ matrix.variant.name }}${{ inputs.tag_suffix }},onlatest=true
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=schedule,pattern=nightly
+
+      - name: 📋 Set image reference for scanning
+        id: image-ref
+        run: |
+          # Extract the first tag from the metadata output
+          FIRST_TAG=$(echo '${{ steps.meta.outputs.tags }}' | head -n1)
+          echo "ref=$FIRST_TAG" >> $GITHUB_OUTPUT
+          echo "Using image reference for ${{ matrix.variant.name }}: $FIRST_TAG"
+
+      - name: 🔍 Advanced Trivy scan - ${{ matrix.variant.name }}
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-ubuntu
+          image-ref: ${{ steps.image-ref.outputs.ref }}
           format: "sarif"
-          output: "trivy-advanced-ubuntu.sarif"
+          output: "trivy-advanced-${{ matrix.variant.name }}.sarif"
           scan-type: "image"
           vuln-type: "os,library"
           severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
 
-      - name: 📊 Upload Ubuntu scan results
+      - name: 📊 Upload ${{ matrix.variant.name }} scan results
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: "trivy-advanced-ubuntu.sarif"
-          category: "trivy-advanced-ubuntu"
-
-      - name: 🔍 Advanced Trivy scan - Alpine
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:main-alpine
-          format: "sarif"
-          output: "trivy-advanced-alpine.sarif"
-          scan-type: "image"
-          vuln-type: "os,library"
-          severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
-
-      - name: 📊 Upload Alpine scan results
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: "trivy-advanced-alpine.sarif"
-          category: "trivy-advanced-alpine"
+          sarif_file: "trivy-advanced-${{ matrix.variant.name }}.sarif"
+          category: "trivy-advanced-${{ matrix.variant.name }}"
